@@ -553,11 +553,25 @@ input:focus{border-color:#60A5FA;box-shadow:0 0 0 3px rgba(96,165,250,.20)}
 
 @media(max-width:520px){
   .app{padding-left:4px;padding-right:4px}
+  .brand h1{font-size:24px}
+  header p{font-size:12px}
   .header-actions{grid-template-columns:1fr 1fr!important}
   .language-switch{grid-column:1 / -1!important}
+  .language-switch button{height:38px;font-size:12px}
+  .header-actions button,.header-actions a{min-height:40px;font-size:12px}
   .header-actions a{grid-column:1 / -1!important}
   .mode-tabs{grid-template-columns:1fr!important}
+  .mode-tabs button{height:48px;font-size:14px}
   .input-panel,.result-panel,.wide-panel{padding:16px}
+  h2{font-size:18px}
+  .section-title p,.games-title p{font-size:14px}
+  .hero-input span,label>span,.k>span{font-size:12px}
+  .hero-input input{height:64px;font-size:44px}
+  .info-grid input{height:48px;font-size:17px}
+  .k-toggle button{height:48px;font-size:21px}
+  .number-field input{height:48px;font-size:16px}
+  .result-toggle button{height:48px;font-size:15px}
+  .add{height:46px;font-size:17px}
   .result-title{align-items:center}
   .rating-tape{grid-template-columns:repeat(4,1fr)!important;font-size:9px}
   .rating-tape span{padding:6px 3px}
