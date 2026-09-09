@@ -578,6 +578,24 @@ input:focus{border-color:#60A5FA;box-shadow:0 0 0 3px rgba(96,165,250,.20)}
   .summary-grid{grid-template-columns:1fr 1fr}
 }
 
+@media(max-width:640px){
+  .score-line{
+    grid-template-columns:1fr auto auto!important;
+    column-gap:10px;
+    align-items:center;
+  }
+  .score-line strong{
+    min-width:44px;
+    text-align:right;
+  }
+  .score-line span:last-child{
+    grid-column:auto!important;
+    min-width:34px;
+    text-align:right!important;
+    color:#7D8998;
+  }
+}
+
 /* Rating numbers must never be ellipsized. */
 .metric strong,.metric.focal strong,.initial-number>strong{
   overflow:visible!important;
