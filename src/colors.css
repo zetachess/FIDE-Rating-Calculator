@@ -577,3 +577,20 @@ input:focus{border-color:#60A5FA;box-shadow:0 0 0 3px rgba(96,165,250,.20)}
   .rating-tape span{padding:6px 3px}
   .summary-grid{grid-template-columns:1fr 1fr}
 }
+
+/* Rating numbers must never be ellipsized. */
+.metric strong,.metric.focal strong,.initial-number>strong{
+  overflow:visible!important;
+  text-overflow:clip!important;
+  white-space:nowrap;
+}
+.result-grid{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(150px,1.2fr);
+}
+.result-grid .metric.focal strong{
+  font-size:clamp(42px,4.8vw,64px);
+  letter-spacing:-.03em;
+}
+@media(max-width:900px){
+  .result-grid .metric.focal strong{font-size:clamp(44px,12vw,62px)}
+}
