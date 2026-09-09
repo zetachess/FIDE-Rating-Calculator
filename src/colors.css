@@ -596,6 +596,30 @@ input:focus{border-color:#60A5FA;box-shadow:0 0 0 3px rgba(96,165,250,.20)}
   }
 }
 
+/* Score row: keep percentage visually separated from the points. */
+.score-line{
+  grid-template-columns:1fr auto minmax(72px,1fr);
+  column-gap:14px;
+}
+.score-line strong{
+  text-align:right;
+  min-width:70px;
+}
+.score-line span:last-child{
+  justify-self:end;
+  min-width:52px;
+  text-align:right;
+  color:#7D8998;
+}
+@media(max-width:640px){
+  .score-line{
+    grid-template-columns:1fr auto minmax(58px,1fr)!important;
+    column-gap:12px;
+  }
+  .score-line strong{min-width:56px}
+  .score-line span:last-child{min-width:46px}
+}
+
 /* Rating numbers must never be ellipsized. */
 .metric strong,.metric.focal strong,.initial-number>strong{
   overflow:visible!important;
