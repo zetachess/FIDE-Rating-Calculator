@@ -10,11 +10,19 @@ type Language = 'en' | 'es';
 type Mode = 'rated' | 'unrated' | 'help';
 type Texts = typeof copy.en;
 
-const seed: RatedGame[] = [{ id: '1', opponentRating: '', result: 'draw' }];
+const createSeed = (): RatedGame[] => [{ id: '1', opponentRating: '', result: 'draw' }];
 const STORAGE_KEY = 'fide-state-v2';
-const uid = () => crypto.randomUUID();
+const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const resultLabels: Record<GameResult, string> = { win: '1', draw: '½', loss: '0' };
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+
+const isLanguage = (value: unknown): value is Language => value === 'en' || value === 'es';
+const isMode = (value: unknown): value is Mode => value === 'rated' || value === 'unrated' || value === 'help';
+const isGame = (value: unknown): value is RatedGame => {
+  if (!value || typeof value !== 'object') return false;
+  const game = value as Partial<RatedGame>;
+  return typeof game.id === 'string' && (typeof game.opponentRating === 'string' || typeof game.opponentRating === 'number') && (game.result === 'win' || game.result === 'draw' || game.result === 'loss');
+};
 
 const copy = {
   en: {
@@ -234,7 +242,29 @@ function HelpPanel({ t }: { t: Texts }) {
   return <section className="help-panel"><div className="help-heading"><h2>{t.helpTitle}</h2></div><div className="prompt-box"><input value={question} onChange={(e) => setQuestion(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && question) setAnswer(t.fallbackAnswer); }} placeholder={t.promptPlaceholder} /><button onClick={() => question && setAnswer(t.fallbackAnswer)}>{t.ask}</button></div><div className="prompt-suggestions">{t.faqs.map(([q, a]) => <button key={q} onClick={() => ask(q, a)}>{q}</button>)}</div>{answer && <div className="prompt-answer"><span>{t.guide}</span><strong>{question}</strong><p>{answer}</p></div>}</section>;
 }
 
-const saved = (() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}'); } catch { return {}; } })();
+type SavedState = { mode?: Mode; language?: Language; rating?: string | number; age?: number; completed?: number; reached?: boolean; kOverride?: number; games?: RatedGame[] };
+const readSavedState = (): SavedState => {
+  try {
+    if (typeof window === 'undefined') return {};
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}');
+    if (!parsed || typeof parsed !== 'object') return {};
+    const state = parsed as Record<string, unknown>;
+    return {
+      mode: isMode(state.mode) ? state.mode : undefined,
+      language: isLanguage(state.language) ? state.language : undefined,
+      rating: typeof state.rating === 'string' || typeof state.rating === 'number' ? state.rating : undefined,
+      age: typeof state.age === 'number' && Number.isFinite(state.age) ? state.age : undefined,
+      completed: typeof state.completed === 'number' && Number.isFinite(state.completed) ? state.completed : undefined,
+      reached: typeof state.reached === 'boolean' ? state.reached : undefined,
+      kOverride: state.kOverride === 10 || state.kOverride === 20 || state.kOverride === 40 ? state.kOverride : undefined,
+      games: Array.isArray(state.games) ? state.games.filter(isGame) : undefined,
+    };
+  } catch {
+    return {};
+  }
+};
+
+const saved = readSavedState();
 
 export default function App() {
   const [mode, setMode] = useState<Mode>(saved.mode ?? 'rated');
@@ -244,26 +274,32 @@ export default function App() {
   const [completed, setCompleted] = useState(saved.completed ?? 0);
   const [reached, setReached] = useState(saved.reached ?? false);
   const [kOverride, setKOverride] = useState(saved.kOverride || 20);
-  const [games, setGames] = useState<RatedGame[]>(saved.games?.length ? saved.games : seed);
+  const [games, setGames] = useState<RatedGame[]>(saved.games?.length ? saved.games : createSeed());
   const [details, setDetails] = useState(false);
   const [tables, setTables] = useState(false);
   const [tableTab, setTableTab] = useState<'pd' | 'dp'>('pd');
   const [search, setSearch] = useState('');
   const t = copy[language];
 
-  useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode, language, rating, age, completed, reached, kOverride, games })), [mode, language, rating, age, completed, reached, kOverride, games]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ mode, language, rating, age, completed, reached, kOverride, games }));
+    } catch {
+      // Storage can be disabled or full; the calculator remains usable without persistence.
+    }
+  }, [mode, language, rating, age, completed, reached, kOverride, games]);
 
   const ratingValue = Number(rating) || 0;
   const ratingDigits = rating.replace(/\D/g, '');
   const showRatingFloorError = ratingDigits.length >= 4 && ratingValue < 1400;
-  const valid = games.filter((g) => Number(g.opponentRating) >= 1400 && Number(g.opponentRating) <= 4000);
+  const valid = games.filter((g) => Number.isInteger(Number(g.opponentRating)) && Number(g.opponentRating) >= 1400 && Number(g.opponentRating) <= 4000);
   const rated = useMemo(() => calculateRatingPeriod({ rating: ratingValue, age, ratedGamesCompleted: completed, previouslyReached2400: reached, kOverride: kOverride || undefined }, valid), [ratingValue, age, completed, reached, kOverride, valid]);
   const initial = useMemo(() => calculateInitialRating(valid), [valid]);
   const record = { wins: valid.filter((g) => g.result === 'win').length, draws: valid.filter((g) => g.result === 'draw').length, losses: valid.filter((g) => g.result === 'loss').length };
   const chart = rated.progression.map((v, i) => ({ name: i ? `${t.gameShort} ${i}` : t.start, rating: Math.round(v) }));
   const contributionChart = rated.games.map((g, i) => ({ name: `G${i + 1}`, change: Number((g.contribution * rated.k).toFixed(1)), fill: g.contribution >= 0 ? 'var(--chart-win)' : 'var(--chart-loss)' }));
   const scoreChart = [{ name: t.win, value: record.wins, fill: 'var(--chart-win)' }, { name: t.draw, value: record.draws, fill: 'var(--chart-draw)' }, { name: t.loss, value: record.losses, fill: 'var(--chart-loss)' }].filter((x) => x.value > 0);
-  const reset = () => { setMode('rated'); setRating(''); setAge(0); setCompleted(0); setReached(false); setKOverride(20); setGames(seed); };
+  const reset = () => { setMode('rated'); setRating(''); setAge(0); setCompleted(0); setReached(false); setKOverride(20); setGames(createSeed()); };
   const share = async () => { const url = window.location.href; try { if (navigator.share) { await navigator.share({ title: t.title, url }); return; } await navigator.clipboard.writeText(url); } catch { window.prompt(t.copyLink, url); } };
 
   return <div className={mode === 'help' ? 'app help-mode' : 'app'}><header><div><div className="brand"><div className="mark"><img src="/elo-logo.png" alt="ELO" /></div><h1>{t.title}</h1></div><p>{t.subtitle}</p></div><div className="header-actions"><div className="language-switch" aria-label={t.language}><Languages className="language-icon" size={15} /><button className={language === 'en' ? 'active' : ''} onClick={() => setLanguage('en')}><GB title="United Kingdom" className="flag" />{t.english}</button><button className={language === 'es' ? 'active' : ''} onClick={() => setLanguage('es')}><ES title="Spain" className="flag" />{t.spanish}</button></div><button className="share-web" onClick={share}><Share2 size={14} />{t.share}</button><button onClick={reset}><RotateCcw size={14} />{t.reset}</button><a href="https://handbook.fide.com/chapter/B022024" target="_blank"><BookOpenText size={14} />{t.regulations} <ExternalLink size={14} /></a></div></header><main><div className="mode-tabs"><button className={mode === 'rated' ? 'active' : ''} onClick={() => setMode('rated')}><BadgeCheck size={15} />{t.tabs.rated}</button><button className={mode === 'unrated' ? 'active' : ''} onClick={() => setMode('unrated')}><UserRoundPlus size={15} />{t.tabs.unrated}</button><button className={mode === 'help' ? 'active' : ''} onClick={() => setMode('help')}><CircleHelp size={15} />{t.tabs.help}</button></div><HelpPanel t={t} /><section className="workspace"><div className="input-panel"><div className="section-title"><div><h2>{mode === 'rated' ? t.currentTitle : t.initialTitle}</h2><p>{mode === 'rated' ? t.currentHelp : t.initialHelp}</p></div></div>{mode === 'rated' && <><label className="hero-input"><span><Gauge size={13} />{t.currentRating}</span><input type="number" value={rating} min="1400" max="4000" placeholder="0" onChange={(e) => setRating(e.target.value)} /></label>{showRatingFloorError && <div className="field-error"><CircleX size={17} /><span>{t.minRatingError}</span></div>}<div className="info-grid"><label><span><Cake size={13} />{t.age}</span><input type="number" value={age} min="1" onChange={(e) => setAge(Number(e.target.value))} /></label><label><span>{t.completed}</span><input type="number" value={completed} min="0" onChange={(e) => setCompleted(Number(e.target.value))} /></label><div className="reached-block"><label className="check"><input type="checkbox" checked={reached} onChange={(e) => { const checked = e.target.checked; setReached(checked); setKOverride(checked ? 10 : 20); }} /><span>{t.reached}</span></label><details className="k-help reached-help"><summary><Info size={12} />{t.reachedTiny}</summary><ul>{t.reachedRules.map((rule) => <li key={rule}>{rule}</li>)}</ul></details></div><div className="k"><span><Zap size={13} />{t.kFactor}</span><div className="k-toggle">{[10, 20, 40].map((v) => <button aria-pressed={(kOverride || rated.k) === v} onClick={() => setKOverride(v)} key={v}>{v}</button>)}</div><details className="k-help"><summary><Info size={12} />{t.kTiny}</summary><ul>{t.kRules.map((rule) => <li key={rule}>{rule}</li>)}</ul></details></div></div></>}<div className="games-title"><div><h2>{t.games}</h2><p>{t.gamesHelp}</p></div><span>{valid.length} {t.valid}</span></div><GameList games={games} setGames={setGames} virtual={mode === 'unrated'} t={t} /></div><div className="result-panel" aria-live="polite"><div className="rating-tape"><span>1400</span><span>1800</span><span>2200</span><span>2650</span></div><div className="spectrum-rail" /><div className="result-title"><div><h2><Gauge size={17} />{mode === 'rated' ? t.newRating : t.initialResult}</h2></div><span className="live-signal"><Radio size={13} />{t.live}</span></div>{mode === 'rated' ? <><div className="result-grid"><Metric label={t.startingRating} value={ratingValue} icon={<Flag size={12} />} /><Metric label={t.ratingChange} value={`${rated.change >= 0 ? '+' : ''}${rated.change}`} tone={rated.change > 0 ? 'positive' : rated.change < 0 ? 'negative' : ''} icon={<TrendingUp size={12} />} /><Metric label={t.newRatingMetric} value={rated.newRating} accent icon={<Gauge size={12} />} /></div><RatingGauge value={rated.newRating} label={t.ratingMap} icon={<Route size={12} />} /><div className="score-line"><span><Target size={12} />{t.score}</span><strong>{rated.score} / {valid.length}</strong><span>{valid.length ? Math.round(rated.score / valid.length * 100) : 0}%</span></div><div className="score-track"><span style={{ width: `${valid.length ? rated.score / valid.length * 100 : 0}%` }} /></div><div className="record"><span><Trophy size={12} />{record.wins} {t.wins}</span><span><Handshake size={12} />{record.draws} {t.draws}</span><span><X size={12} />{record.losses} {t.losses}</span></div><h3><List size={15} />{t.breakdown}</h3><div className="breakdown">{rated.games.length ? rated.games.map((g, i) => <div className="break-row" key={valid[i]?.id}><span>{g.opponentRating}<small>{valid[i]?.result ? t.resultNames[valid[i].result] : ''}</small></span><span><small>{t.difference}</small>{g.effectiveDifference > 0 ? '+' : ''}{g.effectiveDifference}</span><span><small>{t.expected}</small>{Math.round(g.expectedScore * 100)}%</span><strong className={g.contribution >= 0 ? 'positive' : 'negative'}>{g.contribution >= 0 ? '+' : ''}{(g.contribution * rated.k).toFixed(1)}</strong></div>) : <div className="empty-score">{t.emptyScore}</div>}</div></> : <><div className="initial-number"><span>{t.initialFideRating}</span><strong>{initial.initialRating ?? '—'}</strong><em className={initial.eligible ? 'eligible' : 'pending'}>{initial.eligible ? t.eligible : t.notEnough}</em>{!initial.eligible && <small>{t.initialReasonFallback}</small>}</div><RatingGauge value={initial.initialRating ?? 0} label={t.ratingMap} icon={<Route size={12} />} /><div className="summary-grid"><Metric label={t.ratedGames} value={initial.ratedGames} icon={<Hash size={12} />} /><Metric label={t.score} value={`${initial.score} / ${initial.ratedGames}`} icon={<Target size={12} />} /><Metric label={t.virtualGames} value={initial.virtualGames} /><Metric label={t.averageOpposition} value={initial.averageOpposition} /><Metric label={t.scorePercentage} value={`${Math.round(initial.percentage * 100)}%`} /><Metric label={t.dp} value={initial.dp} /></div></>}</div></section>{mode === 'rated' && <section className="wide-panel chart-panel"><div className="wide-title"><div><h2><ChartLine size={17} />{t.analytics}</h2><p>{t.analyticsHelp}</p></div><BookOpenText size={18} /></div><div className="chart-grid"><div className="chart-card chart-card-wide"><div className="chart-card-title"><span><Route size={12} />{t.ratingPath}</span><strong>{rated.newRating}</strong></div><div className="chart"><ResponsiveContainer><AreaChart data={chart}><defs><linearGradient id="ratingFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--chart-rating)" stopOpacity={0.38} /><stop offset="1" stopColor="var(--chart-rating)" stopOpacity={0} /></linearGradient></defs><CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" stroke="var(--chart-axis)" tickLine={false} axisLine={false} /><YAxis domain={['dataMin - 20', 'dataMax + 20']} stroke="var(--chart-axis)" tickLine={false} axisLine={false} width={45} /><Tooltip cursor={{ stroke: 'var(--chart-rating)', strokeOpacity: 0.25 }} contentStyle={{ background: '#080e0b', border: '1px solid #536755', borderRadius: 8, color: '#f5f1e8' }} /><Area type="monotone" dataKey="rating" stroke="var(--chart-rating)" strokeWidth={2.5} fill="url(#ratingFill)" dot={{ fill: 'var(--chart-rating)', stroke: '#07100d', strokeWidth: 2, r: 4 }} /></AreaChart></ResponsiveContainer></div></div><div className="chart-card"><div className="chart-card-title"><span><ChartBar size={12} />{t.gameImpact}</span><strong>{rated.change >= 0 ? '+' : ''}{rated.change}</strong></div><div className="mini-chart"><ResponsiveContainer><BarChart data={contributionChart}><CartesianGrid stroke="var(--chart-grid)" vertical={false} /><XAxis dataKey="name" stroke="var(--chart-axis)" tickLine={false} axisLine={false} /><YAxis stroke="var(--chart-axis)" tickLine={false} axisLine={false} width={34} /><Tooltip cursor={{ fill: '#c5ec8f10' }} contentStyle={{ background: '#080e0b', border: '1px solid #536755', borderRadius: 8, color: '#f5f1e8' }} /><Bar dataKey="change" radius={[4, 4, 4, 4]}>{contributionChart.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}</Bar></BarChart></ResponsiveContainer></div></div><div className="chart-card"><div className="chart-card-title"><span><ChartPie size={12} />{t.scoreProfile}</span><strong>{valid.length ? Math.round(rated.score / valid.length * 100) : 0}%</strong></div><div className="donut-wrap">{scoreChart.length ? <ResponsiveContainer><PieChart><Tooltip contentStyle={{ background: '#080e0b', border: '1px solid #536755', borderRadius: 8, color: '#f5f1e8' }} /><Pie data={scoreChart} innerRadius={48} outerRadius={72} paddingAngle={3} dataKey="value">{scoreChart.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}</Pie></PieChart></ResponsiveContainer> : <div className="empty-donut">{t.noGames}</div>}</div><div className="chart-legend"><span><i className="win-dot" />{t.win}</span><span><i className="draw-dot" />{t.draw}</span><span><CircleX size={12} />{t.loss}</span></div></div></div></section>}<section className="disclosure"><button onClick={() => setDetails(!details)}><span><strong>{t.howCalculated}</strong><small>{mode === 'rated' ? 'Articles 8.3.1–8.3.3' : 'Article 8.2'}</small></span><ChevronDown className={details ? 'rotated' : ''} /></button></section><section className="disclosure"><button onClick={() => setTables(!tables)}><span><strong>{t.fideTables}</strong><small>{t.tablesHelp}</small></span><ChevronDown className={tables ? 'rotated' : ''} /></button>{tables && <div className="table-area"><div className="table-tools"><div className="mini-tabs"><button className={tableTab === 'pd' ? 'active' : ''} onClick={() => setTableTab('pd')}>D → PD</button><button className={tableTab === 'dp' ? 'active' : ''} onClick={() => setTableTab('dp')}>p → dp</button></div><input placeholder={t.search} value={search} onChange={(e) => setSearch(e.target.value)} /></div><div className="official-table">{tableTab === 'pd' ? PD_TABLE.filter((r) => !search || Number(search) >= r.min && Number(search) <= r.max).map((r) => <div key={r.min}><span>{r.min}–{r.max === Infinity ? '∞' : r.max}</span><strong>{r.higher.toFixed(2)}</strong><span>{r.lower.toFixed(2)}</span></div>) : DP_TABLE.map((dp, i) => ({ dp, i })).filter((x) => !search || String(x.i).includes(search)).map((x) => <div key={x.i}><span>{x.i}%</span><strong>{x.dp}</strong></div>)}</div></div>}</section></main><footer><span>{t.footerA}</span><a href="https://handbook.fide.com/chapter/B022024" target="_blank">{t.handbook}</a><span>{t.footerB}</span></footer></div>;
